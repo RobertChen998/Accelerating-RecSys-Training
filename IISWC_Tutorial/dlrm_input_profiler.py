@@ -302,7 +302,7 @@ if __name__ == "__main__":
 				break
 
 		if ( len(lS_i) == len(train_tuple[1])):
-			lS_i = np.array(lS_i).astype(np.float32)
+			lS_i = np.array(lS_i).astype(np.int32)
 			train_hot.append((train_tuple[0], lS_i, train_tuple[2]))
 		else:
 			train_normal.append(train_tuple)
