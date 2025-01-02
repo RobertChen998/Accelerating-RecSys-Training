@@ -97,7 +97,7 @@ file_name = 'example_mode_trial'
 current_dir = os.getcwd()  
 output_file_path = os.path.join(current_dir, file_name)  
 
-example_mode = True
+example_mode = False
 if example_mode == True:
 	embedding_table_gather_reduce_access = [[0, [2, 4, 0, 2, 4]], [1, [1, 3, 4]], [0, [2, 3, 4, 5]], [1, [1, 2, 4, 2, 5]]]
 	offset_global  = [[[0, 2], [0, 1]], [[0, 1], [0, 3]]]
@@ -114,11 +114,11 @@ def training_trace_standard(embedding_table_gather_reduce_access, embedding_tabl
 	table_size_list = [size for size in embedding_table_len_global]
 	#print("here2")
 
-	#embedding_table_gather_reduce_access = [[elem[0], elem[1].tolist()] for elem in embedding_table_gather_reduce_access] # to list
+	embedding_table_gather_reduce_access = [[elem[0], elem[1].tolist()] for elem in embedding_table_gather_reduce_access] # to list
 	#embedding_table_gather_reduce_access = [[elem[0], elem[1]] for elem in embedding_table_gather_reduce_access] # to list
 	#print("here3")
 	# print("***embedding_table_gather_reduce_access", embedding_table_gather_reduce_access)
-	#offset_global = [tensor.tolist() for tensor in offset_global] # to list
+	offset_global = [tensor.tolist() for tensor in offset_global] # to list
 	#offset_global = [tensor for tensor in offset_global]
 	#print("here4")
 	
@@ -659,8 +659,8 @@ class DLRM_Net(nn.Module):
 			V = E(sparse_index_group_batch, sparse_offset_group_batch)
 
 			# size_of_the_reduced_embedding_vector_global = V.size(0)
-			embedding_table_gather_reduce_access = [[0, [2, 4, 0, 2, 4]], [1, [1, 3, 4]], [0, [2, 3, 4, 5]], [1, [1, 2, 4, 2, 5]]]
-			offset_global  = [[[0, 2], [0, 1]], [[0, 1], [0, 3]]]
+			# embedding_table_gather_reduce_access = [[0, [2, 4, 0, 2, 4]], [1, [1, 3, 4]], [0, [2, 3, 4, 5]], [1, [1, 2, 4, 2, 5]]]
+			# offset_global  = [[[0, 2], [0, 1]], [[0, 1], [0, 3]]]
 			# print("embedding_ga_re: ",embedding_table_gather_reduce_access)
 			print("Writing Trace File...")
 			# offset_global.append(lS_o[k])
@@ -983,7 +983,7 @@ if __name__ == "__main__":
 	ln_emb = np.asarray(ln_emb)
 	global embedding_table_len_global
 	embedding_table_len_global = ln_emb
-	embedding_table_len_global = [6,6]
+	#embedding_table_len_global = [6,6]
 	
 	num_fea = ln_emb.size + 1  # num sparse + num dense features
     #     embedding table dimension
