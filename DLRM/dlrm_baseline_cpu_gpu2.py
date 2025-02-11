@@ -56,6 +56,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 # miscellaneous
 import builtins
 import functools
+import os
 # import bisect
 # import shutil
 import time
@@ -73,7 +74,7 @@ import warnings
 with warnings.catch_warnings():
 	warnings.filterwarnings("ignore", category=DeprecationWarning)
 import onnx
-import os
+
 # pytorch
 import torch
 import torch.nn as nn
@@ -92,330 +93,6 @@ import sklearn.metrics
 # from torch.nn.parameter import Parameter
 
 from torch.optim.lr_scheduler import _LRScheduler
-
-file_name = 'random'
-current_dir = os.getcwd()  
-output_file_path = os.path.join(current_dir, file_name)  
-
-example_mode = False
-if example_mode == True:
-	embedding_table_gather_reduce_access = [[0, [2, 4, 0, 2, 4]], [1, [1, 3, 4]], [0, [2, 3, 4, 5]], [1, [1, 2, 4, 2, 5]]]
-	offset_global  = [[[0, 2], [0, 1]], [[0, 1], [0, 3]]]
-
-def training_trace_standard(embedding_table_gather_reduce_access, embedding_table_len_global, size_of_the_reduced_embedding_vector_global, offset_global):
-	print("embedding_table_gather_reduce_access",embedding_table_gather_reduce_access)
-	print("embedding_table_len_global",embedding_table_len_global)
-	print("size_of_the_reduced_embedding_vector_global",size_of_the_reduced_embedding_vector_global)
-	print("offset_global",offset_global)
-	#print("here")
-	total_length = sum(embedding_table_len_global)
-	#print("here1")
-	# memory_index = list(range(total_length)) # 0 ~ total_length-1
-	table_size_list = [size for size in embedding_table_len_global]
-	#print("here2")
-
-	#embedding_table_gather_reduce_access = [[elem[0], elem[1].tolist()] for elem in embedding_table_gather_reduce_access] # to list
-	embedding_table_gather_reduce_access = [[elem[0], elem[1]] for elem in embedding_table_gather_reduce_access] # to list
-	#print("here3")
-	# print("***embedding_table_gather_reduce_access", embedding_table_gather_reduce_access)
-	offset_global = [tensor.tolist() for tensor in offset_global] # to list
-	#offset_global = [tensor for tensor in offset_global]
-	#print("here4")
-	
-	# print('table_size_list', table_size_list)
-	#print ("offset_global",offset_global)
-	batch_num = len(offset_global)
-	batch_len_list = [len(batch) for batch in offset_global ]
-	#print("here5")
-	print('batch_num', batch_num)
-	batched_table_access = []
-	len_entries = []
-	for b in range(batch_num):
-		batched_table_access.append([b])
-	
-	current_batch = 0
-	counter = 0
-	#print("here6")
-	for i in range(len(embedding_table_gather_reduce_access)):
-
-		if (counter == batch_len_list[current_batch]):
-			current_batch += 1
-			counter = 0
-		
-		len_entries.append(len(embedding_table_gather_reduce_access[i][1]))
-		#print("len_entries: ",len_entries)
-		for j in embedding_table_gather_reduce_access[i][1]:
-			batched_table_access[current_batch].append((embedding_table_gather_reduce_access[i][0], j))
-		counter += 1
-		
-
-	print("len_entries",len_entries)
-	#print("here7")
-	# print('batched_table_access', batched_table_access)
-	batched_table_access_list = []
-	# Modify the format
-	# list_memory2  = sys.getsizeof(batched_table_access)
-	# element_memory2 = sum(sys.getsizeof(elem) for elem in batched_table_access)
-	# total_memory2 = list_memory2 + element_memory2
-	#print("batched_table_access size: ",total_memory2)
-
-	for sublist in batched_table_access:
-		new_sublist = [[sublist[0]], sublist[1:]]
-		batched_table_access_list.append(new_sublist)
-		# if(len(batched_table_access_list)%10000 == 0):
-		# 	list_memory  = sys.getsizeof(batched_table_access_list)
-		# 	element_memory = sum(sys.getsizeof(ele) for ele in batched_table_access_list)
-		# 	total_memory = list_memory + element_memory
-			#print("batched_table_access_list size: ",total_memory)
-	#print("here8")
-
-	# print('batched_table_access_list', batched_table_access_list)
-	# batched_table_access_list == [[nth batch], [(kth table, kth entry), (kth table, kth entry), (kth table, kth entry)]]
-	# [[[0], [(0, 2), (0, 4), (0, 0), (0, 2), (0, 4), (1, 1), (1, 3), (1, 4)]], [[1], [(2, 2), (2, 3), (2, 4), (2, 5), (3, 1), (3, 2), (3, 4), (3, 2), (3, 5)]]]
-	emb_table_pair = []
-	emb_table_pair = [(i, j) for i, size in enumerate(table_size_list) for j in range(size)]
-	#print("here9")
-	# print(emb_table_pair)
-	# [(0, 0), (0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (1, 0), (1, 1), (1, 2), (1, 3), (1, 4), (1, 5)]
-	mapped_dict = {idx: pair for idx, pair in enumerate(emb_table_pair)}
-	#print("here10")
-	# print(mapped_dict)
-	# mapped_dict == {0: (0, 0), 1: (0, 1), 2: (0, 2), 3: (0, 3), 4: (0, 4), 5: (0, 5), 6: (1, 0), 7: (1, 1), 8: (1, 2), 9: (1, 3), 10: (1, 4), 11: (1, 5)}
-
-	# print(len_entries)
-	#len_entries == [5, 3, 4, 5]
-	# offset_global == [[[0, 2], [0, 1]], [[0, 1], [0, 3]]]
-	entoffset = []
-	# print("len(offset_global[0])",len(offset_global[0]))
-	# print("len(offset_global[0][0])",len(offset_global[0][0]))
-	
-	for i in range(len(offset_global)):
-		temp_result = []
-		for j in range(len(offset_global[i])):
-			temp_entry = offset_global[i][j] + [len_entries.pop(0)]
-			temp_result.append(temp_entry)
-			
-		entoffset.append(temp_result)
-	
-	
-	# for j in range(len(offset_global[i])):
-	# 	temp_entry = offset_global[i][j] + [len_entries.pop(0)]
-	# 	temp_result.append(temp_entry)
-		
-	# entoffset.append(temp_result)
-	#print("here11")
-	
-	# print(entoffset)
-
-	#entoffset == [[[0, 2, 5], [0, 1, 3]], [[0, 1, 4], [0, 3, 5]]]
-	# 5 entries wiht offset 0, 2 ......
-	# [[0,0,1,1,1,2,3,3], [0,1,1,1,2,2,2,3,3]]
-	entry_to_bag = [[] for _ in range(batch_num)]
-	#print("here12")
-	for idx, group in enumerate(entoffset):
-		counter = 0
-		curr = 1
-		for i in range(len(group)):
-			for j in range(group[i][-1]):
-				# print("i",i)
-				# print("j",j)
-				# print("curr",curr)
-				if (curr < len(group[i])) and (len(group[i]) != 1):
-					# print("group[i][curr]",group[i][curr])
-					if j >= group[i][curr]:
-						counter += 1
-						curr += 1
-				# print("counter",counter)
-				entry_to_bag[idx].append(counter)
-			counter += 1
-			curr = 1
-	#print("here13")
-	# Classify the lookup according to different bags, ex. [[2,4,0,2,4],[1,3,4]] 2,4=> bag0, 0,2,4=>bag1 1=>bag2 3,4=>bag3
-	# res == [[0, 0, 1, 1, 1, 2, 3, 3], [0, 1, 1, 1, 2, 2, 2, 3, 3]] # which entries belongs to which bag(res) (this example is two iteration)
-	# print('entry_to_bag: ', entry_to_bag)
-
-	gather_op_access = [[] for _ in range(batch_num)]
-	#print("here14")
-	# reverse_mapped_dict = {v: k for k, v in mapped_dict.items()}
-	for idx, (_, accesses) in enumerate(batched_table_access_list):
-		print("accesses",accesses)
-		print("mapped_dict.items()",mapped_dict.items())
-		mapped_indexes = []
-		for access in accesses:
-			for k, v in mapped_dict.items():
-				if v == access:
-					mapped_indexes.append(k)
-					
-					break  
-		gather_op_access[idx].extend(mapped_indexes)
-	#print("here15")
-
-	# print('gather_op_access: ', gather_op_access)
-	# gather_op_access == [[2, 4, 0, 2, 4, 7, 9, 10], [2, 3, 4, 5, 7, 8, 10, 8, 11]]
-	entry_to_bag_extend_to_mem_addr = [[val + len(mapped_dict) for val in sublist] for sublist in entry_to_bag]
-	#print("here16")
-	# print('entry_to_bag_extend_to_mem_addr: ', entry_to_bag_extend_to_mem_addr)
-	# entry_to_bag_extend_to_mem_addr == [[12, 12, 13, 13, 13, 14, 15, 15], [12, 13, 13, 13, 14, 14, 14, 15, 15]]
-	mem_trace = [[] for _ in range(batch_num)]
-	#print("here17")
-	# for inference gather reduce
-	for idx, access in enumerate(gather_op_access):
-		for i in range(len(access)):
-			mem_trace[idx].append((gather_op_access[idx][i], 'R'))
-			mem_trace[idx].append((entry_to_bag_extend_to_mem_addr[idx][i], 'R'))
-			mem_trace[idx].append((entry_to_bag_extend_to_mem_addr[idx][i], 'W'))
-			
-		#print(f"Size of mem_trace0: {sys.getsizeof(mem_trace)/(2**20)} MB")
-	#print("here18")
-	# print('mem_trace: ', mem_trace) # for inference gather reduce ok
-	
-	# size_of_the_reduced_embedding_vector_global == 4 for example
-	gradients_mem_addr = []
-	# gradients write back
-	for i in range(size_of_the_reduced_embedding_vector_global):
-		gradients_mem_addr.append(i + len(mapped_dict) + size_of_the_reduced_embedding_vector_global)
-	#print("here19")
-	# print('gradients_mem_addr: ', gradients_mem_addr)
-	for trace in mem_trace:
-		for grad in gradients_mem_addr:
-			trace.append((grad, 'W'))
-	#print("here20")
-	# print('mem_trace: ', mem_trace)
-	# gradients write back done
-	duplicated_grad_addr = [[] for _ in range(batch_num)]
-	#print("here21")
-	for idx, access in enumerate(gather_op_access):
-		for i in range(len(access)):
-			duplicated_grad_addr[idx].append(i + max(gradients_mem_addr) + 1)
-	#print("here22")
-	# print('duplicated_grad_addr: ', duplicated_grad_addr) 
-	# duplicated_grad_addr:  [[20, 21, 22, 23, 24, 25, 26, 27], [20, 21, 22, 23, 24, 25, 26, 27, 28]]
-
-	grad_to_duplicate_access = [[val + min(gradients_mem_addr) for val in sublist] for sublist in entry_to_bag]
-	#print("here23")
-	# print('grad_to_duplicate_access: ', grad_to_duplicate_access)
-	# grad_to_duplicate_access:  [[16, 16, 17, 17, 17, 18, 19, 19], [16, 17, 17, 17, 18, 18, 18, 19, 19]]
-
-	# duplicate gradients operation
-	for idx, access in enumerate(grad_to_duplicate_access):
-		for i in range(len(access)):
-			mem_trace[idx].append((grad_to_duplicate_access[idx][i], 'R'))
-			mem_trace[idx].append((duplicated_grad_addr[idx][i], 'R'))
-			mem_trace[idx].append((duplicated_grad_addr[idx][i], 'W'))
-			
-		#print(f"Size of mem_trace1: {sys.getsizeof(mem_trace)/(2**20)} MB")
-	#print("here24")
-	# print('mem_trace: ', mem_trace)
-	# coalescing gradients
-	# gather_op_access == [[2, 4, 0, 2, 4, 7, 9, 10], [2, 3, 4, 5, 7, 8, 10, 8, 11]]
-
-	coalesce_dst = []
-	for lst in gather_op_access:
-		# Find the unique elements and sort them
-		unique_sorted = sorted(set(lst)) # set(lst) removes duplicate values from lst, leaving only unique elements.
-		# Create a mapping from element to its rank
-		mapping = {value: index for index, value in enumerate(unique_sorted)}
-		# Remap the values in the list according to the mapping
-		remapped_list = [mapping[value] for value in lst] # remapped_list => indicate how big is the 
-		coalesce_dst.append(remapped_list)
-	#print("here25")
-	# print('coalesce_dst: ', coalesce_dst)
-	# coalesce_dst:  [[1, 2, 0, 1, 2, 3, 4, 5], [0, 1, 2, 3, 4, 5, 6, 5, 7]]
-
-	coalesce_dst_addr = []
-	for idx, lst in enumerate(coalesce_dst):
-		max_addr = max(duplicated_grad_addr[idx])
-		coalesce_dst_addr.append([num + max_addr + 1 for num in lst])
-	#print("here26")
-	# print('coalesce_dst_addr:', coalesce_dst_addr)
-	# coalesce_dst_addr: [[29, 30, 28, 29, 30, 31, 32, 33], [29, 30, 31, 32, 33, 34, 35, 34, 36]]
-	# duplicated_grad_addr:  [[20, 21, 22, 23, 24, 25, 26, 27], [20, 21, 22, 23, 24, 25, 26, 27, 28]]
-	
-	#coalesce operation
-	for idx, access in enumerate(duplicated_grad_addr):
-		for i in range(len(access)):
-			mem_trace[idx].append((duplicated_grad_addr[idx][i], 'R'))
-			mem_trace[idx].append((coalesce_dst_addr[idx][i], 'R'))
-			mem_trace[idx].append((coalesce_dst_addr[idx][i], 'W'))
-		#print(f"Size of mem_trace2: {sys.getsizeof(mem_trace)/(2**20)} MB")
-	#print("here27")
-	# print('mem_trace: ', mem_trace)
-
-	write_back_to_table = [sorted(set(lst)) for lst in gather_op_access]
-	#print("here28")
-	# print('write_back_to_table: ', write_back_to_table)
-	# write_back_to_table:  [[0, 2, 4, 7, 9, 10], [2, 3, 4, 5, 7, 8, 10, 11]]
-	coalesce_grad_ready_to_write_back = [sorted(set(lst)) for lst in coalesce_dst_addr]
-	#print("here29")
-	# print('coalesce_grad_ready_to_write_back: ', coalesce_grad_ready_to_write_back)
-	# coalesce_grad_ready_to_write_back:  [[28, 29, 30, 31, 32, 33], [29, 30, 31, 32, 33, 34, 35, 36]]
-	
-	#update emb table with coalesced gradients
-	for idx, access in enumerate(write_back_to_table):
-		for i in range(len(access)):
-			mem_trace[idx].append((coalesce_grad_ready_to_write_back[idx][i], 'R'))
-			mem_trace[idx].append((write_back_to_table[idx][i], 'R'))
-			mem_trace[idx].append((write_back_to_table[idx][i], 'W'))
-		#print(f"Size of mem_trace3: {sys.getsizeof(mem_trace)/(2**20)} MB")
-	#print("here30")
-	# print('standard mem_trace: ', mem_trace)
-
-	memory_needed = [max(lst) for lst in coalesce_dst_addr]
-	#print(f"Size of memory_needed: {sys.getsizeof(memory_needed)/(2**20)} MB")
-	#print("here31")
-	# print('memory_needed: ' , memory_needed)
-
-	add_op_count = []
-	xxy = [1,2]
-
-	for batch in mem_trace:
-		add_count = 0
-		for i in range(len(batch) - 1):
-			if (batch[i][1] == 'R') and (batch[i+1][1] == 'R'):
-				add_count += 1
-		add_op_count.append(add_count)
-	#print('add_op_count_standard: ' , add_op_count)
-	#print("here32")
-
-	return mem_trace, memory_needed
-
-def memory_mapping(memory_trace, memory_needed, embedding_table_dimension_global):
-	base_address = 0x10000000  # base
-	address_shift_per_embedding_vector = 1 * embedding_table_dimension_global # the amount of address shift I need to take next vector
-
-	address_and_action_pair = [[] for _ in range(len(memory_trace))]
-	for idx, trace in enumerate(memory_trace):
-		all_address = [hex(base_address + address_shift_per_embedding_vector * i) for i in range(memory_needed[idx] + 1)]
-		# print("all_address", all_address)
-		for item in trace:
-			index, action = item
-			address = all_address[index]
-			address_and_action_pair[idx].append((address, action))
-		# address_and_action_pair[idx].append("STOP")
-	
-	return address_and_action_pair
-
-
-
-def write_output_to_txt(address_and_action_pair,finish):
-	
-	with open(output_file_path, 'a') as file:
-		for sublist in address_and_action_pair:
-			for item in sublist:
-				if item[1] == 'W':  # Check if access type is 'W'
-					file.write(f"{item[0]} {item[1]}\n")  # Write with space
-				else:
-					file.write(f"{item[0]} {item[1]}\n")  # Write with space
-		if (finish):
-			file.write('STOP\n')  # Write STOP after each sublist
-			
-
-def access_count_compare(memtrace0, memtrace1):
-	res = [[] for _ in range(2)]
-	for i in range(len(memtrace0)):
-		res[0].append(len(memtrace0[i]))
-		res[1].append(len(memtrace1[i]))
-	# print(res)
 
 exc = getattr(builtins, "IOError", "FileNotFoundError")
 
@@ -598,105 +275,46 @@ class DLRM_Net(nn.Module):
 		# return x
 		# approach 2: use Sequential container to wrap all layers
 		return layers(x)
-	
 
-	def apply_emb(self, lS_o, lS_i, emb_l):   # lS_i : list of sparse indices (embedding vector indices)  lS_o : list of sparse offset
-		print("apply_embbbbbbbbbbbbbb")
-		# global size_of_the_reduced_embedding_vector_global
-		# global offset_global
+	def apply_emb(self, lS_o, lS_i, emb_l):
 		# WARNING: notice that we are processing the batch at once. We implicitly
 		# assume that the data is laid out such that:
 		# 1. each embedding is indexed with a group of sparse indices,
 		#   corresponding to a single lookup
 		# 2. for each embedding the lookups are further organized into a batch
 		# 3. for a list of embedding tables there is a list of batched lookups
-		# global embedding_table_gather_reduce_access
-		# if 'embedding_table_gather_reduce_access' not in globals(): # if not exist, initiate it as a empty list
-		# 	embedding_table_gather_reduce_access = []
-		#embedding_table_gather_reduce_access = []
-		# ly = []
-		# if 'offset_global' not in globals():
-		# 	offset_global = []
 
-
-		#offset_global = []        
-		#offset_global.append(lS_o)
-		
-		
-		# size = sys.getsizeof( embedding_table_gather_reduce_access)
-		# for item in  embedding_table_gather_reduce_access:
-		# 	size += sys.getsizeof(item)
-		
-		# size2 = sys.getsizeof( offset_global)
-		# for item2 in  offset_global:
-		# 	size2 += sys.getsizeof(item2)
-
-		# print(f"Size of embedding_table_gather_reduce_access: {size/(2**20)} MB")
-		# print(f"Size of offset_global: {size2/(2**20)} MB")
-
-		
 		ly = []
-		
-		
-		
-		#for k, sparse_index_group_batch in enumerate(lS_i):
+		global size_of_the_reduced_embedding_vector_global
+		global offset_global
+		global embedding_table_gather_reduce_access
+		if 'embedding_table_gather_reduce_access' not in globals():  # if not exist, initiate it as an empty list
+			embedding_table_gather_reduce_access = []
+
+		if 'offset_global' not in globals():
+			offset_global = []        
+		offset_global.append(lS_o)
+		print("lS_i:",lS_i)
+		print("lS_o",lS_o)
+		print("emb_l:",emb_l)	
+		# for k, sparse_index_group_batch in enumerate(lS_i):
 		for k in range(len(lS_i)):
-			
-			print("lS_i = ",lS_i)
-			print("lS_o",lS_o)	
-			#finish = (k==(len(lS_i)-1))
-			
+			sparse_index_group_batch = lS_i[k]
+			sparse_offset_group_batch = lS_o[k]
+			embedding_table_gather_reduce_access.append([k, sparse_index_group_batch])
+
 			# embedding lookup
 			# We are using EmbeddingBag, which implicitly uses sum operator.
 			# The embeddings are represented as tall matrices, with sum
 			# happening vertically across 0 axis, resulting in a row vector
-			sparse_index_group_batch = lS_i[k]
-			sparse_offset_group_batch = lS_o[k]
 			E = emb_l[k]
-			
 			V = E(sparse_index_group_batch, sparse_offset_group_batch)
 
-			# size_of_the_reduced_embedding_vector_global = V.size(0)
-			# embedding_table_gather_reduce_access = [[0, [2, 4, 0, 2, 4]], [1, [1, 3, 4]], [0, [2, 3, 4, 5]], [1, [1, 2, 4, 2, 5]]]
-			# offset_global  = [[[0, 2], [0, 1]], [[0, 1], [0, 3]]]
-			# print("embedding_ga_re: ",embedding_table_gather_reduce_access)
-			print("Writing Trace File...")
-			# offset_global.append(lS_o[k])
-			# embedding_table_gather_reduce_access = [[0, [2, 4, 0, 2, 4]]]
-			# offset_global  = [[[0, 2]]]
-			# size_of_the_reduced_embedding_vector_global = 4
-			#size_of_the_reduced_embedding_vector_global = V.size(0)
-
-			# print("embedding_ga_re: ",embedding_table_gather_reduce_access)
-			# print("embedding_table_gather_reduce_access", embedding_table_gather_reduce_access)
-			# print("embedding_table_len_global",embedding_table_len_global)
-			# print("size_of_the_reduced_embedding_vector_global",size_of_the_reduced_embedding_vector_global)
-			# print("offset_global",offset_global)
-			
-			# with open(output_file_path, 'a') as file:
-			# 		# You can do an initial write here if needed
-			# 		file.write("End of a lookup.\n")
 			ly.append(V)
 
-		embedding_table_gather_reduce_access = []
-		offset_global = []
-		size_of_the_reduced_embedding_vector_global = 0    
-		for i in range(len(lS_i)):
-			sparse_index_group_batch = lS_i[i]
-			sparse_offset_group_batch = lS_o[i]
-			offset_global.append(lS_o[i].unsqueeze(0))
-			embedding_table_gather_reduce_access.append([i, sparse_index_group_batch])
-		
-		print("embedding_table_gather_reduce_access",embedding_table_gather_reduce_access)
-		print("offset_global",offset_global)
+		print("ly: ",ly)
 		size_of_the_reduced_embedding_vector_global = sum([t.size(0) for t in ly])
-		print("size_of_the_reduced_embedding_vector_global: ",size_of_the_reduced_embedding_vector_global)
-		memory_trace, memory_needed = training_trace_standard(embedding_table_gather_reduce_access, embedding_table_len_global, size_of_the_reduced_embedding_vector_global, offset_global)
-		address_and_action_pair = memory_mapping(memory_trace, memory_needed, embedding_table_dimension_global)
-		write_output_to_txt(address_and_action_pair,True)
-		print("Finish Writing one batch of trace !!! ")
-		print("ly",ly)
-		
+		print("size_of_the_reduced_embedding_vector_global",size_of_the_reduced_embedding_vector_global)
 		return ly
 
 	def interact_features(self, x, ly):
@@ -992,19 +610,8 @@ if __name__ == "__main__":
 	ln_emb = np.asarray(ln_emb)
 	global embedding_table_len_global
 	embedding_table_len_global = ln_emb
-	embedding_table_len_global = [6,6]
-	
-	num_fea = ln_emb.size + 1  # num sparse + num dense features
-    #     embedding table dimension
-    #   _ |-------------------------|
-    # l | **************************
-    # e | **************************
-    # n | **************************
-    # g | **************************
-    # t | **************************
-    # h | **************************
-    #   —
-
+	# embedding_table_len_global = [6,6] #  Have to add this or the example mode will index out of range
+	num_fea = ln_emb.size + 1 
 	m_den_out = ln_bot[ln_bot.size - 1]
 	if args.arch_interaction_op == "dot":
 		# approach 1: all
@@ -1151,11 +758,13 @@ if __name__ == "__main__":
 		md_flag=args.md_flag,
 		md_threshold=args.md_threshold,
 	)
-	# test prints
+	# # test prints
 	# if args.debug_mode:
 	# 	print("initial parameters (weights and bias):")
-	# 	for param in dlrm.parameters():
+	# 	for name, param in dlrm.named_parameters():
+	# 		print(name)
 	# 		print(param.detach().cpu().numpy())
+
 		# print(dlrm)
 
 	# specify the loss function
@@ -1289,10 +898,6 @@ if __name__ == "__main__":
 	print("time/loss/accuracy (if enabled):")
 	with torch.autograd.profiler.profile(enabled=args.enable_profiling, use_cuda=use_gpu) as prof:
 		while k < args.nepochs:
-			if k==0:
-				with open(output_file_path, 'w') as file:
-					# You can do an initial write here if needed
-					file.write("Starting new file.\n")
 			if k < skip_upto_epoch:
 				continue
 
@@ -1305,6 +910,8 @@ if __name__ == "__main__":
 				previous_iteration_time = None
 
 			for j, (X, lS_o, lS_i, T) in enumerate(train_ld):
+				print("train_ld lS_i: ",lS_i)
+				print("train_ld lS_o: ",lS_o)
 				if j == 0 and args.save_onnx:
 					(X_onnx, lS_o_onnx, lS_i_onnx) = (X, lS_o, lS_i)
 
@@ -1362,11 +969,23 @@ if __name__ == "__main__":
 					optimizer.zero_grad()
 					# backward pass
 					E.backward()
+					
 					# for name, param in dlrm.named_parameters():
-					# 	print(f"Parameter: {name}")
-					# 	print(f"  Shape: {param.shape}")
-					# 	print(f"  Gradient:\n{param.grad}")
-					# 	print()
+					# 	print(f"Parameter {name} is on device: {param.device}")
+
+					# for name, param in dlrm.named_parameters():
+					# 	if param.grad.is_sparse:
+					# 		print(f"Parameter: {name}")
+					# 		print(f"{param}")	
+					# 		print(f"  Shape: {param.shape}")
+					# 		print(f"  Gradient:\n{param.grad}")
+						# if param.grad.is_sparse:
+						# 	coalesced_grad = param.grad.coalesce()  # Coalesce the sparse tensor
+						# 	print(f"Coalesced gradient:{coalesced_grad}")
+						# 	print(coalesced_grad.indices().device)  # Now you can access indices
+						# 	print(coalesced_grad.values().device)   # You can also access values
+
+						# print()
 					# debug prints (check gradient norm)
 					# for l in mlp.layers:
 					#     if hasattr(l, 'weight'):
@@ -1624,7 +1243,7 @@ if __name__ == "__main__":
 
 			k += 1  # nepochs
 		accum_time_end = time_wrap(use_gpu)
-		#print("Total_Epoch_Time ", 1000*(accum_time_end - accum_time_begin))
+		print("Total_Epoch_Time ", 1000*(accum_time_end - accum_time_begin))
 
 	# profiling
 	if args.enable_profiling:
@@ -1645,10 +1264,10 @@ if __name__ == "__main__":
 		# dot.render('dlrm_s_pytorch_graph') # write .pdf file
 
 	# test prints
-	if not args.inference_only and args.debug_mode:
-		print("updated parameters (weights and bias):")
-		# for param in dlrm.parameters():
-		# 	print(param.detach().cpu().numpy())
+	# if not args.inference_only and args.debug_mode:
+	# 	print("updated parameters (weights and bias):")
+	# 	for param in dlrm.parameters():
+	# 		print(param.detach().cpu().numpy())
 
 	# export the model in onnx
 	if args.save_onnx:
@@ -1730,297 +1349,249 @@ if __name__ == "__main__":
 		prediction = sess.run(output_names=["pred"], input_feed=dict_inputs)
 		print("prediction", prediction)
 		'''
-	# example_mode = False
-	# if example_mode == True:
-	# 	embedding_table_gather_reduce_access = [[0, [2, 4, 0, 2, 4]], [1, [1, 3, 4]], [0, [2, 3, 4, 5]], [1, [1, 2, 4, 2, 5]]]
-	# 	offset_global  = [[[0, 2], [0, 1]], [[0, 1], [0, 3]]]
+	example_mode = False
+	if example_mode == True:
+		embedding_table_gather_reduce_access = [[0, [2, 4, 0, 2, 4]], [1, [1, 3, 4]], [0, [2, 3, 4, 5]], [1, [1, 2, 4, 2, 5]]]
+		offset_global  = [[[0, 2], [0, 1]], [[0, 1], [0, 3]]]
 	
-	# def training_trace_standard(embedding_table_gather_reduce_access, embedding_table_len_global, size_of_the_reduced_embedding_vector_global, offset_global):
-	# 	print("here")
-	# 	total_length = sum(embedding_table_len_global)
-	# 	print("here1")
-	# 	# memory_index = list(range(total_length)) # 0 ~ total_length-1
-	# 	table_size_list = [size for size in embedding_table_len_global]
-	# 	print("here2")
+	def training_trace_standard(embedding_table_gather_reduce_access, embedding_table_len_global, size_of_the_reduced_embedding_vector_global, offset_global):
 
-	# 	embedding_table_gather_reduce_access = [[elem[0], elem[1].tolist()] for elem in embedding_table_gather_reduce_access] # to list
-	# 	print("here3")
-	# 	# print("***embedding_table_gather_reduce_access", embedding_table_gather_reduce_access)
-	# 	offset_global = [tensor.tolist() for tensor in offset_global] # to list
-	# 	print("here4")
-	# 	# print('***offset_global', offset_global)
-	# 	# print('table_size_list', table_size_list)
-		
-	# 	batch_num = len(offset_global)
-	# 	print("here5")
-	# 	# print('batch_num', batch_num)
-	# 	batched_table_access = []
-	# 	len_entries = []
-	# 	for b in range(batch_num):
-	# 		batched_table_access.append([b])
-			
-	# 	print("here6")
-	# 	for i in range(len(embedding_table_gather_reduce_access)):
-	# 		len_entries.append(len(embedding_table_gather_reduce_access[i][1]))
-			
-	# 		for j in embedding_table_gather_reduce_access[i][1]:
-	# 			batched_table_access[i // len(table_size_list)].append((embedding_table_gather_reduce_access[i][0], j))
-				
-				
-	# 	print("here7")
-	# 	# print('batched_table_access', batched_table_access)
-	# 	batched_table_access_list = []
-	# 	# Modify the format
-	# 	list_memory2  = sys.getsizeof(batched_table_access)
-	# 	element_memory2 = sum(sys.getsizeof(elem) for elem in batched_table_access)
-	# 	total_memory2 = list_memory2 + element_memory2
-	# 	print("batched_table_access size: ",total_memory2)
+		total_length = sum(embedding_table_len_global)
+		memory_index = list(range(total_length)) # 0 ~ total_length-1
+		table_size_list = [size for size in embedding_table_len_global]
 
-	# 	for sublist in batched_table_access:
-	# 		new_sublist = [[sublist[0]], sublist[1:]]
-	# 		batched_table_access_list.append(new_sublist)
-	# 		if(len(batched_table_access_list)%10000 == 0):
-	# 			list_memory  = sys.getsizeof(batched_table_access_list)
-	# 			element_memory = sum(sys.getsizeof(ele) for ele in batched_table_access_list)
-	# 			total_memory = list_memory + element_memory
-	# 			print("batched_table_access_list size: ",total_memory)
-	# 	print("here8")
+		embedding_table_gather_reduce_access = [[elem[0], elem[1].tolist()] for elem in embedding_table_gather_reduce_access] # to list
+        # print("***embedding_table_gather_reduce_access", embedding_table_gather_reduce_access)
+		#print("offset_global",offset_global)
+		offset_global = [tensor.tolist() for tensor in offset_global] # to list
+        # print('***offset_global', offset_global)
+        # print('table_size_list', table_size_list)
+        
+		batch_num = len(offset_global)
+		#print("offset_global",offset_global)
+		print('batch_num', batch_num)
+		batched_table_access = []
+		len_entries = []
+		for b in range(batch_num):
+			batched_table_access.append([b])
+		for i in range(len(embedding_table_gather_reduce_access)):
+			len_entries.append(len(embedding_table_gather_reduce_access[i][1]))
+			for j in embedding_table_gather_reduce_access[i][1]:
+				batched_table_access[i // len(table_size_list)].append((embedding_table_gather_reduce_access[i][0], j))
+        # print('batched_table_access', batched_table_access)
+		batched_table_access_list = []
+        # Modify the format
+		for sublist in batched_table_access:
+			new_sublist = [[sublist[0]], sublist[1:]]
+			batched_table_access_list.append(new_sublist)
 
-	# 	# print('batched_table_access_list', batched_table_access_list)
-	# 	# batched_table_access_list == [[nth batch], [(kth table, kth entry), (kth table, kth entry), (kth table, kth entry)]]
-	# 	# [[[0], [(0, 2), (0, 4), (0, 0), (0, 2), (0, 4), (1, 1), (1, 3), (1, 4)]], [[1], [(2, 2), (2, 3), (2, 4), (2, 5), (3, 1), (3, 2), (3, 4), (3, 2), (3, 5)]]]
-	# 	emb_table_pair = []
-	# 	emb_table_pair = [(i, j) for i, size in enumerate(table_size_list) for j in range(size)]
-	# 	print("here9")
-	# 	# print(emb_table_pair)
-	# 	# [(0, 0), (0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (1, 0), (1, 1), (1, 2), (1, 3), (1, 4), (1, 5)]
-	# 	mapped_dict = {idx: pair for idx, pair in enumerate(emb_table_pair)}
-	# 	print("here10")
-	# 	# print(mapped_dict)
-	# 	# mapped_dict == {0: (0, 0), 1: (0, 1), 2: (0, 2), 3: (0, 3), 4: (0, 4), 5: (0, 5), 6: (1, 0), 7: (1, 1), 8: (1, 2), 9: (1, 3), 10: (1, 4), 11: (1, 5)}
+        # print('batched_table_access_list', batched_table_access_list)
+        # batched_table_access_list == [[nth batch], [(kth table, kth entry), (kth table, kth entry), (kth table, kth entry)]]
+        # [[[0], [(0, 2), (0, 4), (0, 0), (0, 2), (0, 4), (1, 1), (1, 3), (1, 4)]], [[1], [(2, 2), (2, 3), (2, 4), (2, 5), (3, 1), (3, 2), (3, 4), (3, 2), (3, 5)]]]
+		emb_table_pair = []
+		emb_table_pair = [(i, j) for i, size in enumerate(table_size_list) for j in range(size)]
+        # print(emb_table_pair)
+        # [(0, 0), (0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (1, 0), (1, 1), (1, 2), (1, 3), (1, 4), (1, 5)]
+		mapped_dict = {idx: pair for idx, pair in enumerate(emb_table_pair)}
+        # print(mapped_dict)
+        # mapped_dict == {0: (0, 0), 1: (0, 1), 2: (0, 2), 3: (0, 3), 4: (0, 4), 5: (0, 5), 6: (1, 0), 7: (1, 1), 8: (1, 2), 9: (1, 3), 10: (1, 4), 11: (1, 5)}
 
-	# 	# print(len_entries)
-	# 	#len_entries == [5, 3, 4, 5]
-	# 	# offset_global == [[[0, 2], [0, 1]], [[0, 1], [0, 3]]]
-	# 	entoffset = []
+        # print(len_entries)
+        #len_entries == [5, 3, 4, 5]
+        # offset_global == [[[0, 2], [0, 1]], [[0, 1], [0, 3]]]
+		entoffset = []
 
-	# 	for i in range(len(offset_global)):
-	# 		temp_result = []
-	# 		for j in range(len(offset_global[i])):
-	# 			temp_entry = offset_global[i][j] + [len_entries.pop(0)]
-	# 			temp_result.append(temp_entry)
-				
-	# 		entoffset.append(temp_result)
-	# 	print("here11")
-		
-	# 	# print(entoffset)
+		for i in range(len(offset_global)):
+			temp_result = []
+			for j in range(len(offset_global[i])):
+				temp_entry = offset_global[i][j] + [len_entries.pop(0)]
+				temp_result.append(temp_entry)
+			entoffset.append(temp_result)
+        
+        # print(entoffset)
 
-	# 	#entoffset == [[[0, 2, 5], [0, 1, 3]], [[0, 1, 4], [0, 3, 5]]]
-	# 	# 5 entries wiht offset 0, 2 ......
-	# 	# [[0,0,1,1,1,2,3,3], [0,1,1,1,2,2,2,3,3]]
-	# 	entry_to_bag = [[] for _ in range(batch_num)]
-	# 	print("here12")
-	# 	for idx, group in enumerate(entoffset):
-	# 		counter = 0
-	# 		curr = 1
-	# 		for i in range(len(group)):
-	# 			for j in range(group[i][-1]):
-	# 				if (curr < len(group[i])) and (len(group[i]) != 1):
-	# 					if j >= group[i][curr]:
-	# 						counter += 1
-	# 						curr += 1
-	# 				entry_to_bag[idx].append(counter)
-	# 				print("here15")
-	# 			counter += 1
-	# 			curr = 1
-	# 	print("here13")
-	# 	# res == [[0, 0, 1, 1, 1, 2, 3, 3], [0, 1, 1, 1, 2, 2, 2, 3, 3]] # which entries belongs to which bag(res) (this example is two iteration)
-	# 	# print('entry_to_bag: ', entry_to_bag)
+        #entoffset == [[[0, 2, 5], [0, 1, 3]], [[0, 1, 4], [0, 3, 5]]]
+        # 5 entries wiht offset 0, 2 ......
+        # [[0,0,1,1,1,2,3,3], [0,1,1,1,2,2,2,3,3]]
+		entry_to_bag = [[] for _ in range(batch_num)]
+		for idx, group in enumerate(entoffset):
+			counter = 0
+			curr = 1
+			for i in range(len(group)):
+				for j in range(group[i][-1]):
+					if (curr < len(group[i])) and (len(group[i]) != 1):
+						if j >= group[i][curr]:
+							counter += 1
+							curr += 1
+					entry_to_bag[idx].append(counter)
+				counter += 1
+				curr = 1
+                    
+        # res == [[0, 0, 1, 1, 1, 2, 3, 3], [0, 1, 1, 1, 2, 2, 2, 3, 3]] # which entries belongs to which bag(res) (this example is two iteration)
+        # print('entry_to_bag: ', entry_to_bag)
 
-	# 	gather_op_access = [[] for _ in range(batch_num)]
-	# 	print("here14")
-	# 	# reverse_mapped_dict = {v: k for k, v in mapped_dict.items()}
-	# 	for idx, (_, accesses) in enumerate(batched_table_access_list):
-	# 		mapped_indexes = []
-	# 		for access in accesses:
-	# 			for k, v in mapped_dict.items():
-	# 				if v == access:
-	# 					mapped_indexes.append(k)
-						
-	# 					break  
-	# 		gather_op_access[idx].extend(mapped_indexes)
-	# 	print("here15")
+		# mapped_dict concatenate all embedding tables and count the number of entries	 ex. 0-6, 0-6 => 0-11
+		gather_op_access = [[] for _ in range(batch_num)]
+		reverse_mapped_dict = {v: k for k, v in mapped_dict.items()}
+		for idx, (_, accesses) in enumerate(batched_table_access_list):
+			mapped_indexes = []
+			for access in accesses:
+				for k, v in mapped_dict.items():
+					if v == access:
+						mapped_indexes.append(k)
+						break  
+			gather_op_access[idx].extend(mapped_indexes)
 
-	# 	# print('gather_op_access: ', gather_op_access)
-	# 	# gather_op_access == [[2, 4, 0, 2, 4, 7, 9, 10], [2, 3, 4, 5, 7, 8, 10, 8, 11]]
-	# 	entry_to_bag_extend_to_mem_addr = [[val + len(mapped_dict) for val in sublist] for sublist in entry_to_bag]
-	# 	print("here16")
-	# 	# print('entry_to_bag_extend_to_mem_addr: ', entry_to_bag_extend_to_mem_addr)
-	# 	# entry_to_bag_extend_to_mem_addr == [[12, 12, 13, 13, 13, 14, 15, 15], [12, 13, 13, 13, 14, 14, 14, 15, 15]]
-	# 	mem_trace = [[] for _ in range(batch_num)]
-	# 	print("here17")
-	# 	# for inference gather reduce
-	# 	for idx, access in enumerate(gather_op_access):
-	# 		for i in range(len(access)):
-	# 			mem_trace[idx].append((gather_op_access[idx][i], 'R'))
-	# 			mem_trace[idx].append((entry_to_bag_extend_to_mem_addr[idx][i], 'R'))
-	# 			mem_trace[idx].append((entry_to_bag_extend_to_mem_addr[idx][i], 'W'))
-				
-	# 		print(f"Size of mem_trace0: {sys.getsizeof(mem_trace)/(2**20)} MB")
-	# 	print("here18")
-	# 	# print('mem_trace: ', mem_trace) # for inference gather reduce ok
-		
-	# 	# size_of_the_reduced_embedding_vector_global == 4 for example
-	# 	gradients_mem_addr = []
-	# 	# gradients write back
-	# 	for i in range(size_of_the_reduced_embedding_vector_global):
-	# 		gradients_mem_addr.append(i + len(mapped_dict) + size_of_the_reduced_embedding_vector_global)
-	# 	print("here19")
-	# 	# print('gradients_mem_addr: ', gradients_mem_addr)
-	# 	for trace in mem_trace:
-	# 		for grad in gradients_mem_addr:
-	# 			trace.append((grad, 'W'))
-	# 	print("here20")
-	# 	# print('mem_trace: ', mem_trace)
-	# 	# gradients write back done
-	# 	duplicated_grad_addr = [[] for _ in range(batch_num)]
-	# 	print("here21")
-	# 	for idx, access in enumerate(gather_op_access):
-	# 		for i in range(len(access)):
-	# 			duplicated_grad_addr[idx].append(i + max(gradients_mem_addr) + 1)
-	# 	print("here22")
-	# 	# print('duplicated_grad_addr: ', duplicated_grad_addr) 
-	# 	# duplicated_grad_addr:  [[20, 21, 22, 23, 24, 25, 26, 27], [20, 21, 22, 23, 24, 25, 26, 27, 28]]
+        # print('gather_op_access: ', gather_op_access)
+        # gather_op_access == [[2, 4, 0, 2, 4, 7, 9, 10], [2, 3, 4, 5, 7, 8, 10, 8, 11]]
+		entry_to_bag_extend_to_mem_addr = [[val + len(mapped_dict) for val in sublist] for sublist in entry_to_bag]
+        # print('entry_to_bag_extend_to_mem_addr: ', entry_to_bag_extend_to_mem_addr)
+        # entry_to_bag_extend_to_mem_addr == [[12, 12, 13, 13, 13, 14, 15, 15], [12, 13, 13, 13, 14, 14, 14, 15, 15]]
+		mem_trace = [[] for _ in range(batch_num)]
+        # for inference gather reduce
+		for idx, access in enumerate(gather_op_access):
+			for i in range(len(access)):
+				mem_trace[idx].append((gather_op_access[idx][i], 'R'))
+				mem_trace[idx].append((entry_to_bag_extend_to_mem_addr[idx][i], 'R'))
+				mem_trace[idx].append((entry_to_bag_extend_to_mem_addr[idx][i], 'W'))
+		#print('mem_trace: ', mem_trace) # for inference gather reduce ok
 
-	# 	grad_to_duplicate_access = [[val + min(gradients_mem_addr) for val in sublist] for sublist in entry_to_bag]
-	# 	print("here23")
-	# 	# print('grad_to_duplicate_access: ', grad_to_duplicate_access)
-	# 	# grad_to_duplicate_access:  [[16, 16, 17, 17, 17, 18, 19, 19], [16, 17, 17, 17, 18, 18, 18, 19, 19]]
+        # size_of_the_reduced_embedding_vector_global == 4 for example
+		gradients_mem_addr = []
+        # gradients write back
+		for i in range(size_of_the_reduced_embedding_vector_global):
+			gradients_mem_addr.append(i + len(mapped_dict) + size_of_the_reduced_embedding_vector_global)
+        # print('gradients_mem_addr: ', gradients_mem_addr)
+		for trace in mem_trace:
+			for grad in gradients_mem_addr:
+				trace.append((grad, 'W'))
+        # print('mem_trace: ', mem_trace)
+        # gradients write back done
+		duplicated_grad_addr = [[] for _ in range(batch_num)]
+		for idx, access in enumerate(gather_op_access):
+			for i in range(len(access)):
+				duplicated_grad_addr[idx].append(i + max(gradients_mem_addr) + 1)
+        # print('duplicated_grad_addr: ', duplicated_grad_addr) 
+        # duplicated_grad_addr:  [[20, 21, 22, 23, 24, 25, 26, 27], [20, 21, 22, 23, 24, 25, 26, 27, 28]]
 
-	# 	# duplicate gradients operation
-	# 	for idx, access in enumerate(grad_to_duplicate_access):
-	# 		for i in range(len(access)):
-	# 			mem_trace[idx].append((grad_to_duplicate_access[idx][i], 'R'))
-	# 			mem_trace[idx].append((duplicated_grad_addr[idx][i], 'R'))
-	# 			mem_trace[idx].append((duplicated_grad_addr[idx][i], 'W'))
-				
-	# 		print(f"Size of mem_trace1: {sys.getsizeof(mem_trace)/(2**20)} MB")
-	# 	print("here24")
-	# 	# print('mem_trace: ', mem_trace)
-	# 	# coalescing gradients
-	# 	# gather_op_access == [[2, 4, 0, 2, 4, 7, 9, 10], [2, 3, 4, 5, 7, 8, 10, 8, 11]]
+		grad_to_duplicate_access = [[val + min(gradients_mem_addr) for val in sublist] for sublist in entry_to_bag]
+        # print('grad_to_duplicate_access: ', grad_to_duplicate_access)
+        # grad_to_duplicate_access:  [[16, 16, 17, 17, 17, 18, 19, 19], [16, 17, 17, 17, 18, 18, 18, 19, 19]]
 
-	# 	coalesce_dst = []
-	# 	for lst in gather_op_access:
-	# 		# Find the unique elements and sort them
-	# 		unique_sorted = sorted(set(lst)) # set(lst) removes duplicate values from lst, leaving only unique elements.
-	# 		# Create a mapping from element to its rank
-	# 		mapping = {value: index for index, value in enumerate(unique_sorted)}
-	# 		# Remap the values in the list according to the mapping
-	# 		remapped_list = [mapping[value] for value in lst] # remapped_list => indicate how big is the 
-	# 		coalesce_dst.append(remapped_list)
-	# 	print("here25")
-	# 	# print('coalesce_dst: ', coalesce_dst)
-	# 	# coalesce_dst:  [[1, 2, 0, 1, 2, 3, 4, 5], [0, 1, 2, 3, 4, 5, 6, 5, 7]]
+        # duplicate gradients operation
+		for idx, access in enumerate(grad_to_duplicate_access):
+			for i in range(len(access)):
+				mem_trace[idx].append((grad_to_duplicate_access[idx][i], 'R'))
+				mem_trace[idx].append((duplicated_grad_addr[idx][i], 'R'))
+				mem_trace[idx].append((duplicated_grad_addr[idx][i], 'W'))
+        # print('mem_trace: ', mem_trace)
+        # coalescing gradients
+        # gather_op_access == [[2, 4, 0, 2, 4, 7, 9, 10], [2, 3, 4, 5, 7, 8, 10, 8, 11]]
 
-	# 	coalesce_dst_addr = []
-	# 	for idx, lst in enumerate(coalesce_dst):
-	# 		max_addr = max(duplicated_grad_addr[idx])
-	# 		coalesce_dst_addr.append([num + max_addr + 1 for num in lst])
-	# 	print("here26")
-	# 	# print('coalesce_dst_addr:', coalesce_dst_addr)
-	# 	# coalesce_dst_addr: [[29, 30, 28, 29, 30, 31, 32, 33], [29, 30, 31, 32, 33, 34, 35, 34, 36]]
-	# 	# duplicated_grad_addr:  [[20, 21, 22, 23, 24, 25, 26, 27], [20, 21, 22, 23, 24, 25, 26, 27, 28]]
-		
-	# 	#coalesce operation
-	# 	for idx, access in enumerate(duplicated_grad_addr):
-	# 		for i in range(len(access)):
-	# 			mem_trace[idx].append((duplicated_grad_addr[idx][i], 'R'))
-	# 			mem_trace[idx].append((coalesce_dst_addr[idx][i], 'R'))
-	# 			mem_trace[idx].append((coalesce_dst_addr[idx][i], 'W'))
-	# 		print(f"Size of mem_trace2: {sys.getsizeof(mem_trace)/(2**20)} MB")
-	# 	print("here27")
-	# 	# print('mem_trace: ', mem_trace)
+		coalesce_dst = []
+		for lst in gather_op_access:
+			# Find the unique elements and sort them
+			unique_sorted = sorted(set(lst))
+			# Create a mapping from element to its rank
+			mapping = {value: index for index, value in enumerate(unique_sorted)}
+			# Remap the values in the list according to the mapping
+			remapped_list = [mapping[value] for value in lst]
+			coalesce_dst.append(remapped_list)
+        # print('coalesce_dst: ', coalesce_dst)
+        # coalesce_dst:  [[1, 2, 0, 1, 2, 3, 4, 5], [0, 1, 2, 3, 4, 5, 6, 5, 7]]
 
-	# 	write_back_to_table = [sorted(set(lst)) for lst in gather_op_access]
-	# 	print("here28")
-	# 	# print('write_back_to_table: ', write_back_to_table)
-	# 	# write_back_to_table:  [[0, 2, 4, 7, 9, 10], [2, 3, 4, 5, 7, 8, 10, 11]]
-	# 	coalesce_grad_ready_to_write_back = [sorted(set(lst)) for lst in coalesce_dst_addr]
-	# 	print("here29")
-	# 	# print('coalesce_grad_ready_to_write_back: ', coalesce_grad_ready_to_write_back)
-	# 	# coalesce_grad_ready_to_write_back:  [[28, 29, 30, 31, 32, 33], [29, 30, 31, 32, 33, 34, 35, 36]]
-		
-	# 	#update emb table with coalesced gradients
-	# 	for idx, access in enumerate(write_back_to_table):
-	# 		for i in range(len(access)):
-	# 			mem_trace[idx].append((coalesce_grad_ready_to_write_back[idx][i], 'R'))
-	# 			mem_trace[idx].append((write_back_to_table[idx][i], 'R'))
-	# 			mem_trace[idx].append((write_back_to_table[idx][i], 'W'))
-	# 		print(f"Size of mem_trace3: {sys.getsizeof(mem_trace)/(2**20)} MB")
-	# 	print("here30")
-	# 	# print('standard mem_trace: ', mem_trace)
+		coalesce_dst_addr = []
+		for idx, lst in enumerate(coalesce_dst):
+			max_addr = max(duplicated_grad_addr[idx])
+			coalesce_dst_addr.append([num + max_addr + 1 for num in lst])
+        
+        # print('coalesce_dst_addr:', coalesce_dst_addr)
+        # coalesce_dst_addr: [[29, 30, 28, 29, 30, 31, 32, 33], [29, 30, 31, 32, 33, 34, 35, 34, 36]]
+        # duplicated_grad_addr:  [[20, 21, 22, 23, 24, 25, 26, 27], [20, 21, 22, 23, 24, 25, 26, 27, 28]]
+        
+        #coalesce operation
+		for idx, access in enumerate(duplicated_grad_addr):
+			for i in range(len(access)):
+				mem_trace[idx].append((duplicated_grad_addr[idx][i], 'R'))
+				mem_trace[idx].append((coalesce_dst_addr[idx][i], 'R'))
+				mem_trace[idx].append((coalesce_dst_addr[idx][i], 'W'))
+        # print('mem_trace: ', mem_trace)
 
-	# 	memory_needed = [max(lst) for lst in coalesce_dst_addr]
-	# 	print(f"Size of memory_needed: {sys.getsizeof(memory_needed)/(2**20)} MB")
-	# 	print("here31")
-	# 	# print('memory_needed: ' , memory_needed)
+		write_back_to_table = [sorted(set(lst)) for lst in gather_op_access]
+		# print('write_back_to_table: ', write_back_to_table)
+		# write_back_to_table:  [[0, 2, 4, 7, 9, 10], [2, 3, 4, 5, 7, 8, 10, 11]]
+		coalesce_grad_ready_to_write_back = [sorted(set(lst)) for lst in coalesce_dst_addr]
+		# print('coalesce_grad_ready_to_write_back: ', coalesce_grad_ready_to_write_back)
+		# coalesce_grad_ready_to_write_back:  [[28, 29, 30, 31, 32, 33], [29, 30, 31, 32, 33, 34, 35, 36]]
 
-	# 	add_op_count = []
+		#update emb table with coalesced gradients
+		for idx, access in enumerate(write_back_to_table):
+			for i in range(len(access)):
+				mem_trace[idx].append((coalesce_grad_ready_to_write_back[idx][i], 'R'))
+				mem_trace[idx].append((write_back_to_table[idx][i], 'R'))
+				mem_trace[idx].append((write_back_to_table[idx][i], 'W'))
+        # print('standard mem_trace: ', mem_trace)
 
-	# 	for batch in mem_trace:
-	# 		add_count = 0
-	# 		for i in range(len(batch) - 1):
-	# 			if (batch[i][1] == 'R') and (batch[i+1][1] == 'R'):
-	# 				add_count += 1
-	# 		add_op_count.append(add_count)
-	# 	print('add_op_count_standard: ' , add_op_count)
-	# 	print("here32")
+		memory_needed = [max(lst) for lst in coalesce_dst_addr]
+        # print('memory_needed: ' , memory_needed)
 
-	# 	return mem_trace, memory_needed
+		add_op_count = []
 
-	# def memory_mapping(memory_trace, memory_needed, embedding_table_dimension_global):
-	# 	base_address = 0x10000000  # base
-	# 	address_shift_per_embedding_vector = 1 * embedding_table_dimension_global # the amount of address shift I need to take next vector
+		for batch in mem_trace:
+			add_count = 0
+			for i in range(len(batch) - 1):
+				if (batch[i][1] == 'R') and (batch[i+1][1] == 'R'):
+					add_count += 1
+			add_op_count.append(add_count)
+		print('add_op_count_standard: ' , add_op_count)
 
-	# 	address_and_action_pair = [[] for _ in range(len(memory_trace))]
-	# 	for idx, trace in enumerate(memory_trace):
-	# 		all_address = [hex(base_address + address_shift_per_embedding_vector * i) for i in range(memory_needed[idx] + 1)]
-	# 		# print("all_address", all_address)
-	# 		for item in trace:
-	# 			index, action = item
-	# 			address = all_address[index]
-	# 			address_and_action_pair[idx].append((address, action))
-	# 		# address_and_action_pair[idx].append("STOP")
-	# 	# print("address_and_action_pair", address_and_action_pair)
+		return mem_trace, memory_needed
 
-	# 	return address_and_action_pair
+	def memory_mapping(memory_trace, memory_needed, embedding_table_dimension_global):
+		base_address = 0x10000000  # base
+		address_shift_per_embedding_vector = 1 * embedding_table_dimension_global # the amount of address shift I need to take next vector
+
+		address_and_action_pair = [[] for _ in range(len(memory_trace))]
+		for idx, trace in enumerate(memory_trace):
+			all_address = [hex(base_address + address_shift_per_embedding_vector * i) for i in range(memory_needed[idx] + 1)]
+			# print("all_address", all_address)
+			for item in trace:
+				index, action = item
+				address = all_address[index]
+				address_and_action_pair[idx].append((address, action))
+			# address_and_action_pair[idx].append("STOP")
+		# print("address_and_action_pair", address_and_action_pair)
+
+		return address_and_action_pair
 
 
 
-	# def write_output_to_txt(address_and_action_pair, file_name):
-	# 	current_dir = os.getcwd()  
-	# 	output_file_path = os.path.join(current_dir, file_name)  
+	def write_output_to_txt(address_and_action_pair, file_name):
+		current_dir = os.getcwd()  
+		output_file_path = os.path.join(current_dir, file_name)  
 
-	# 	with open(output_file_path, 'w') as file:
-	# 		for sublist in address_and_action_pair:
-	# 			for item in sublist:
-	# 				if item[1] == 'W':  # Check if access type is 'W'
-	# 					file.write(f"{item[0]} {item[1]}\n")  # Write with space
-	# 				else:
-	# 					file.write(f"{item[0]} {item[1]}\n")  # Write with space
-	# 			file.write('STOP\n')  # Write STOP after each sublist
+		with open(output_file_path, 'w') as file:
+			for sublist in address_and_action_pair:
+				for item in sublist:
+					if item[1] == 'W':  # Check if access type is 'W'
+						file.write(f"{item[0]} {item[1]}\n")  # Write with space
+					else:
+						file.write(f"{item[0]} {item[1]}\n")  # Write with space
+				file.write('STOP\n')  # Write STOP after each sublist
 	
-	# def access_count_compare(memtrace0, memtrace1):
-	# 	res = [[] for _ in range(2)]
-	# 	for i in range(len(memtrace0)):
-	# 		res[0].append(len(memtrace0[i]))
-	# 		res[1].append(len(memtrace1[i]))
-	# 	# print(res)
+	def access_count_compare(memtrace0, memtrace1):
+		res = [[] for _ in range(2)]
+		for i in range(len(memtrace0)):
+			res[0].append(len(memtrace0[i]))
+			res[1].append(len(memtrace1[i]))
+		# print(res)
 	
-	
-# memory_trace, memory_needed = training_trace_standard(embedding_table_gather_reduce_access, embedding_table_len_global, size_of_the_reduced_embedding_vector_global, offset_global)
-# address_and_action_pair = memory_mapping(memory_trace, memory_needed, embedding_table_dimension_global)
-# #address_and_action_pair.append([(1,2),(3,4)])
-# #print(address_and_action_pair)
-# write_output_to_txt(address_and_action_pair, '003_5')
+print("embedding_table_gather_reduce_accessssssss",embedding_table_gather_reduce_access)
+print("offset_global",offset_global)
+print("size_of_the_reduced_embedding_vector_global",size_of_the_reduced_embedding_vector_global)	
+memory_trace, memory_needed = training_trace_standard(embedding_table_gather_reduce_access, embedding_table_len_global, size_of_the_reduced_embedding_vector_global, offset_global)
+#print("memory_trace",memory_trace)
+address_and_action_pair = memory_mapping(memory_trace, memory_needed, embedding_table_dimension_global)
+#address_and_action_pair.append([(1,2),(3,4)])
+#print(address_and_action_pair)
+write_output_to_txt(address_and_action_pair, 'random_whole_store')
