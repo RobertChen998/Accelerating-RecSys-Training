@@ -115,17 +115,19 @@ def training_trace_standard(embedding_table_gather_reduce_access, embedding_tabl
 	#print("here2")
 
 	#embedding_table_gather_reduce_access = [[elem[0], elem[1].tolist()] for elem in embedding_table_gather_reduce_access] # to list
-	embedding_table_gather_reduce_access = [[elem[0], elem[1]] for elem in embedding_table_gather_reduce_access] # to list
+	embedding_table_gather_reduce_access = [[elem[0], elem[1].tolist()] for elem in embedding_table_gather_reduce_access] # to list
 	#print("here3")
 	# print("***embedding_table_gather_reduce_access", embedding_table_gather_reduce_access)
-	offset_global = [tensor.tolist() for tensor in offset_global] # to list
+	offset_global = offset_global.unsqueeze(0)
+	offset_global = offset_global.tolist()  # to list
+	
 	#offset_global = [tensor for tensor in offset_global]
 	#print("here4")
 	
 	# print('table_size_list', table_size_list)
 	#print ("offset_global",offset_global)
-	batch_num = len(offset_global)
-	batch_len_list = [len(batch) for batch in offset_global ]
+	batch_num = 1
+	batch_len_list = [1]
 	#print("here5")
 	print('batch_num', batch_num)
 	batched_table_access = []
@@ -137,16 +139,9 @@ def training_trace_standard(embedding_table_gather_reduce_access, embedding_tabl
 	counter = 0
 	#print("here6")
 	for i in range(len(embedding_table_gather_reduce_access)):
-
-		if (counter == batch_len_list[current_batch]):
-			current_batch += 1
-			counter = 0
-		
-		len_entries.append(len(embedding_table_gather_reduce_access[i][1]))
-		#print("len_entries: ",len_entries)
-		for j in embedding_table_gather_reduce_access[i][1]:
-			batched_table_access[current_batch].append((embedding_table_gather_reduce_access[i][0], j))
-		counter += 1
+			len_entries.append(len(embedding_table_gather_reduce_access[i][1]))
+			for j in embedding_table_gather_reduce_access[i][1]:
+				batched_table_access[i // len(table_size_list)].append((embedding_table_gather_reduce_access[i][0], j))
 		
 
 	print("len_entries",len_entries)
@@ -679,12 +674,12 @@ class DLRM_Net(nn.Module):
 			ly.append(V)
 
 		embedding_table_gather_reduce_access = []
-		offset_global = []
+		offset_global = lS_o
 		size_of_the_reduced_embedding_vector_global = 0    
 		for i in range(len(lS_i)):
 			sparse_index_group_batch = lS_i[i]
 			sparse_offset_group_batch = lS_o[i]
-			offset_global.append(lS_o[i].unsqueeze(0))
+			# offset_global.append(lS_o[i].unsqueeze(0))
 			embedding_table_gather_reduce_access.append([i, sparse_index_group_batch])
 		
 		print("embedding_table_gather_reduce_access",embedding_table_gather_reduce_access)
