@@ -93,7 +93,7 @@ import sklearn.metrics
 
 from torch.optim.lr_scheduler import _LRScheduler
 
-file_name = 'random'
+file_name = 'dataset'
 current_dir = os.getcwd()  
 output_file_path = os.path.join(current_dir, file_name)  
 
@@ -127,7 +127,7 @@ def training_trace_standard(embedding_table_gather_reduce_access, embedding_tabl
 	# print('table_size_list', table_size_list)
 	#print ("offset_global",offset_global)
 	batch_num = 1
-	batch_len_list = [1]
+	
 	#print("here5")
 	print('batch_num', batch_num)
 	batched_table_access = []
@@ -987,7 +987,7 @@ if __name__ == "__main__":
 	ln_emb = np.asarray(ln_emb)
 	global embedding_table_len_global
 	embedding_table_len_global = ln_emb
-	embedding_table_len_global = [6,6]
+	#embedding_table_len_global = [6,6]
 	
 	num_fea = ln_emb.size + 1  # num sparse + num dense features
     #     embedding table dimension
