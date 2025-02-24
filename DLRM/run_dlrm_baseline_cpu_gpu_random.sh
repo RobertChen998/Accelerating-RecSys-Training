@@ -27,7 +27,7 @@
 # 								--nepochs=1
 
 
-python dlrm_baseline_cpu_gpu_random.py --mini-batch-size=2 \
+python dlrm_baseline_cpu_gpu.py --mini-batch-size=2 \
 								--data-size=4 \
 								--arch-embedding-size=6-6
 
