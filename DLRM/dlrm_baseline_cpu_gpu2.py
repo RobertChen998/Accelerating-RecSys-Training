@@ -1594,4 +1594,4 @@ memory_trace, memory_needed = training_trace_standard(embedding_table_gather_red
 address_and_action_pair = memory_mapping(memory_trace, memory_needed, embedding_table_dimension_global)
 #address_and_action_pair.append([(1,2),(3,4)])
 #print(address_and_action_pair)
-write_output_to_txt(address_and_action_pair, 'random_whole_store')
+write_output_to_txt(address_and_action_pair, 'random_whole_store') 
