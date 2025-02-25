@@ -299,7 +299,7 @@ def training_trace_standard(embedding_table_gather_reduce_access, embedding_tabl
 	print("here22")
 	# print('duplicated_grad_addr: ', duplicated_grad_addr) 
 	# duplicated_grad_addr:  [[20, 21, 22, 23, 24, 25, 26, 27], [20, 21, 22, 23, 24, 25, 26, 27, 28]]
-
+	
 	grad_to_duplicate_access = [[val + min(gradients_mem_addr) for val in sublist] for sublist in entry_to_bag]
 	print("here23")
 	# print('grad_to_duplicate_access: ', grad_to_duplicate_access)
